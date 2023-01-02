@@ -44,11 +44,27 @@ The flow is similar if the client comes from an on-premises network over a VPN o
 
 ## Implementation References
 
-Network Architecture & packet flow with Application Gateway and a backend server  
-https://learn.microsoft.com/en-us/azure/architecture/example-scenario/gateway/firewall-application-gateway#architecture-1
+Enabling Zero-Trust with Azure Networking Services
+https://azure.microsoft.com/en-us/blog/enabling-zero-trust-with-azure-network-security-services/
 
-End-to-End TLS Encryption in the app gateway setup
-https://learn.microsoft.com/en-us/azure/application-gateway/ssl-overview#end-to-end-tls-encryption
+Implementation of e2e TLS with Application Gateway and Azure Firewall
+https://techcommunity.microsoft.com/t5/azure-network-security-blog/zero-trust-with-azure-network-security/ba-p/3668280
+
+Azure Firewall Premium SKU- Configuration of certificates for TLS inspection
+https://learn.microsoft.com/en-us/azure/firewall/premium-certificates
+
+Microsoft Security Community Webinar on this concept
+https://www.youtube.com/watch?v=JFEA-M0YDMY&ab_channel=MicrosoftSecurityCommunity
+
+Implementation of Zero-Trust in various topologies
+https://learn.microsoft.com/en-us/azure/architecture/example-scenario/gateway/application-gateway-before-azure-firewall  
+- Client from public connections accessing the workloads through appgw
+- Clients from connected networks (hybrid: on-premise connections)
+- Azure Firewall in a azure vWan making it a **Secure Hub** 
+- Using a 3rd party NVA with Route Server
+
+Network packet flow in a topology with appgw before firewall
+https://learn.microsoft.com/en-us/azure/architecture/example-scenario/gateway/firewall-application-gateway#application-gateway-before-firewall
 
 Configuring E2E TLS in an app gateway setup using powershell
 https://learn.microsoft.com/en-us/azure/application-gateway/application-gateway-end-to-end-ssl-powershell
