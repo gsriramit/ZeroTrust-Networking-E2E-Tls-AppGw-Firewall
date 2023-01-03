@@ -15,24 +15,32 @@ TBD
 
 ### Network Flow
 
+Network traffic from the public internet follows this flow:
+
 1. The client starts the connection to the public IP address of the Azure Application Gateway:
    - Source IP address: ClientPIP
    - Destination IP address: AppGwPIP
-2. The request to the Application Gateway public IP is distributed to a back-end instance of the gateway, in this case 10.0.0.7. The Application Gateway instance that receives the request stops the connection from the client, and establishes a new connection with one of the back ends. The back end sees the Application Gateway instance as the source IP address. The Application Gateway inserts an X-Forwarded-For HTTP header with the original client IP address.
-   - Source IP address: 10.0.0.7 (the private IP address of the Application Gateway instance)
-   - Destination IP address: 10.0.2.4
+2. The request to the Application Gateway public IP is distributed to a back-end instance of the gateway, in this case 10.0.0.5.
+   - This does not happen when the traffic needs to be sent to a external public site. The application gateway uses its public ip to send the traffic to the external fqdn
+   - In this case, the Application Gateway instance stops the connection from the client, and tends to establishe a new connection with the targeted FQDN.
+   - The UDR to 192.0.78.24 & 192.0.78.25 in the Application Gateway subnet forwards the packet to the Azure Firewall i.e. 10.0.3.4, while preserving the destination IP of the ext.website
+     - Source IP address: 10.0.0.5 (private IP address of the Application Gateway instance)
+     - Destination IP address: 192.0.78.24
+     - X-Forwarded-For header: ClientPIP
+3. Azure Firewall does SNAT the traffic, because the traffic is going to a public IP address. It forwards the traffic to the external website if the same is allowed by the configured application rules. Now that the traffic hits an application rule in the firewall, the workload will see the source IP address of the specific firewall instance that processed the packet, since the Azure Firewall will proxy the connection:
+   - Source IP address if the traffic is allowed by an Azure Firewall application rule: 20.245.195.221
+   - Destination IP address: 192.0.78.24
    - X-Forwarded-For header: ClientPIP
-3. The VM answers the application request, reversing source and destination IP addresses. The VM already knows how to reach the Application Gateway, so doesn't need a UDR.
-   - Source IP address: 10.0.2.4
-   - Destination IP address: 10.0.0.7
-4. Finally, the Application Gateway instance answers the client:
+4. The ext website answers the request, reversing source and destination IP addresses.
+   - Source IP address: 192.0.78.24
+   - Destination IP address: 20.245.195.221
+5. Here the Azure Firewall doesn SNAT the traffic again as the traffic needs to be sent to the private IP of the application gateway
+   - Source IP address: 10.0.3.4
+   - Destination IP address: 10.0.0.5
+6. Finally, the Application Gateway instance answers the client:
    - Source IP address: AppGwPIP
    - Destination IP address: ClientPIP  
-Azure Application Gateway adds metadata to the packet HTTP headers, such as the **X-Forwarded-For** header containing the original client's IP address. Some application servers need the source client IP address to serve geolocation-specific content, or for logging. For more information, see How an application gateway works.  
-
-The IP address 10.0.0.7 is one of the instances the Azure Application Gateway service deploys under the covers, here with the internal, private front-end IP address 10.0.0.4. These individual instances are normally invisible to the Azure administrator. But noticing the difference is useful in some cases, such as when troubleshooting network issues.  
-
-The flow is similar if the client comes from an on-premises network over a VPN or ExpressRoute gateway. The difference is the client accesses the private IP address of the Application Gateway instead of the public address.  
+Outbound flows from the VMs to the public internet go through Azure Firewall, as defined by the UDR to 0.0.0.0/0. 
 
 ## Deployment Instructions
 - Run the CreateTLSCertificates.sh to generate the TLS files for the application gateway and the backend server. Please note that this script will create all the certificates in the local machine from where the script is run from
