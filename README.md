@@ -1,7 +1,12 @@
 ## Architecture Diagram
-TBD
-
 ### TLS Flow
+![NetworkSecurityNinja - Appgw-fw-e2e-tls](https://user-images.githubusercontent.com/13979783/210385376-310f8728-2d47-477e-8061-2badeb09ea96.png)
+
+### Network Packet Flow
+![NetworkSecurityNinja - Appgw-fw-packetflow](https://user-images.githubusercontent.com/13979783/210385277-a8e62633-13aa-416e-a68d-90d3c09efec2.png)
+
+
+### TLS Flow (To be updated)
 - A TLS certificate signed by a custom rootCA is attached to the Application gateway's listener. The Listener has a frontend IP configuration consisting of the public IP and listening on port 443
 - The client successfully establishes a TLS connection with the application gateway (only after the client accepts to proceed with the unverified connection. This has been detailed in the NOTES section)
 - Application gateway being a L7 load balancer and a reverse proxy, terminates the TLS connection with the client
@@ -14,7 +19,6 @@ TBD
 - The appgw then terminates the TLS connection with the server and establishes a TLS connection with the client (browser)
 
 ### Network Flow
-
 Network traffic from the public internet follows this flow:
 
 1. The client starts the connection to the public IP address of the Azure Application Gateway:
