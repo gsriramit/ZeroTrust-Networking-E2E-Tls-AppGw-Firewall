@@ -7,32 +7,37 @@
 
 
 ### TLS Flow (To be updated)
-- A TLS certificate signed by a custom rootCA is attached to the Application gateway's listener. The Listener has a frontend IP configuration consisting of the public IP and listening on port 443
+- A TLS certificate signed by a custom rootCA is attached to the Application gateway's listener. This should the certificate of the private CA that has signed the Intermediate CA certificate of Azure Firewall
 - The client successfully establishes a TLS connection with the application gateway (only after the client accepts to proceed with the unverified connection. This has been detailed in the NOTES section)
 - Application gateway being a L7 load balancer and a reverse proxy, terminates the TLS connection with the client
-- As we have designed the connection to be TLS end to end, the application gateway now needs to establish a new/separate TLS connection with the backend server
-- The backend server has a TLS certificate installed and added to the default website (CN= contoso.com) signed by the same custom rootCA 
-- In this part of the connection, the application gateway acts as the client and the workload machine acts as the server
-  - For the application gateway to successfully establish a TLS connection with the server, the server's CA signing certificate has to be added to the backend HTTP settings of the app gateway. This configuration instructs the app gateway to trust the server's TLS certificate
-  - Note: This step is not required if the backend's certificate is signed by a well-known CA such as Verisign. The same is applicable to Azure services such as app services too
-- The backend server uses the established TLS connection to respond back to the appgw
-- The appgw then terminates the TLS connection with the server and establishes a TLS connection with the client (browser)
+- As we have designed the connection to be TLS end to end, the application gateway now needs to establish a new/separate TLS connection with the target FQDN
+- The UDR now routes the traffic through the azure firewall. Firewall has an application rule that *allows* the target URL and requires *TLS Inspection*
+- Firewall at this point attempts to create a new TLS connection with the target site. It gets the server certificate of the target site during this process
+- The firewall now uses its managed identity (MI) to access the Intermediate CA certificate from the keyvault to sign the *certificate that is created dynamically*. This would let the firewall create a certificate with the CN of the target site issued by the Firewall private Intermediate CA
+- Firewall uses this certificate to complete the TLS connection with the application gateway. Firewall acts as a forward web proxy and impersonates the target site
+- The customrootCA certificate that was used to sign the Intermediate CA certificate of the firewall has to be linked the backend HTTP settings of the app gateway
+- Application Gateway, when it recives the server certificate from the firewall, would be able to verify the issuer of the cert as it has added the customrootCA to the list of trusted CAs
+- In this architecture, the firewall acts as the client when interacting with the target site
+- The target site uses the established TLS connection to respond back to the firewall which then sends the packets back to the appgw
+- The appgw then terminates the TLS connection with the firewall and establishes a TLS connection with the client (browser) to send the response back
 
 ### Network Flow
 Network traffic from the public internet follows this flow:
 
-1. The client starts the connection to the public IP address of the Azure Application Gateway:
+1. The client starts the connection with the public IP address of the Azure Application Gateway:
    - Source IP address: ClientPIP
    - Destination IP address: AppGwPIP
 2. The request to the Application Gateway public IP is distributed to a back-end instance of the gateway, in this case 10.0.0.5.
    - This does not happen when the traffic needs to be sent to a external public site. The application gateway uses its public ip to send the traffic to the external fqdn
-   - In this case, the Application Gateway instance stops the connection from the client, and tends to establishe a new connection with the targeted FQDN.
-   - The UDR to 192.0.78.24 & 192.0.78.25 in the Application Gateway subnet forwards the packet to the Azure Firewall i.e. 10.0.3.4, while preserving the destination IP of the ext.website
+   - The Application Gateway would act as a reverse proxy. It terminates the connection with the client, and tends to establishe a new connection with the targeted FQDN.
+   - The UDR to the targeted FQDN 192.0.78.24 & 192.0.78.25 in the Application Gateway subnet forwards the packet to the Azure Firewall i.e. 10.0.3.4, while preserving the destination IP of the ext.website
      - Source IP address: 10.0.0.5 (private IP address of the Application Gateway instance)
      - Destination IP address: 192.0.78.24
      - X-Forwarded-For header: ClientPIP
-3. Azure Firewall does SNAT the traffic, because the traffic is going to a public IP address. It forwards the traffic to the external website if the same is allowed by the configured application rules. Now that the traffic hits an application rule in the firewall, the workload will see the source IP address of the specific firewall instance that processed the packet, since the Azure Firewall will proxy the connection:
-   - Source IP address if the traffic is allowed by an Azure Firewall application rule: 20.245.195.221
+3. Azure firewall does 2 things in this step
+   - It uses the configured DNS (Azure DNS in this case) to determine the public IP address of the target site as the host header does not contain the IP address but just the FQDN. If DNS is not configured in Firewall's DNS proxy settings, then this would break the flow 
+   - It SNATs the traffic, because the traffic is going to a public IP address. It sends the traffic to the external website if the same is allowed by the configured application rules. Now that the traffic hits an application rule in the firewall, the target site will see the public IP address of the firewall, since the Azure Firewall will proxy the connection:
+   - Source IP address if the traffic is allowed by an Azure Firewall application rule: 20.245.195.221 (public IP of the Azure Firewall)
    - Destination IP address: 192.0.78.24
    - X-Forwarded-For header: ClientPIP
 4. The ext website answers the request, reversing source and destination IP addresses.
@@ -44,15 +49,11 @@ Network traffic from the public internet follows this flow:
 6. Finally, the Application Gateway instance answers the client:
    - Source IP address: AppGwPIP
    - Destination IP address: ClientPIP  
-Outbound flows from the VMs to the public internet go through Azure Firewall, as defined by the UDR to 0.0.0.0/0. 
+
 
 ## Deployment Instructions
-- Run the CreateTLSCertificates.sh to generate the TLS files for the application gateway and the backend server. Please note that this script will create all the certificates in the local machine from where the script is run from
-  - If you require the certificates to be loaded to an instance of Azure Keyvault, you can do the same and create a reference to the cert for App gateway to use. The instructions for the same are available in this article- https://learn.microsoft.com/en-us/azure/application-gateway/key-vault-certs
-- Modify the variables according to your azure environment settings in the DeployAzureResources.ps1 file. The commands can be run one step at a time if you are getting familiar with the behavior of each of the commands. The ps1 file should also work when executed from any automation pipeline
-- The server certificate created for the backend virtual machine(s) should be installed manually in this exercise. The instructions to complete the procedure in IIS 7.0 have been made available in post referenced in the next section. The procedure should be similar to other web servers too, including apache tomcat and Nginx
-  - The more elegant way of doing this is to have the server TLS certificates baked into the virtual machine images and have these images used from the Compute Image gallery. However, these images should not be used for common workloads. If the installed certificates are exportable and the password has not been secured, then that is a potential security risk
-  - The certificates could also be read from the keyvault (using the managed identity of the VM being deployed) and installed in the certificate store. This process could be completed as a part of the post deployment automation script
+- Run the CreateTLSCertificates.sh to generate the TLS files for the application gateway and Azure Firewall. Please note that this script will create all the certificates in the local machine from where the script is run from.  
+- The images in the "DeploymentInstructions" directory contains the configuration settings of the Firewall & Firewall policy, application gateway and the route table
 
 ## Implementation References
 
@@ -93,10 +94,9 @@ Converting a cert file into a cer file
 https://support.comodo.com/index.php?/Knowledgebase/Article/View/361/17/how-do-i-convert-crt-file-into-the-microsoft-cer-format
 
 ## Note:
-Since contoso.com is not a publicly available domain, the DNS resolution of the same cannot happen at the public authoritative DNS servers or the Azure public DNS zone (if the management of the DNS has been delegated to the Azure public DNS zones). So, the mapping of the application gateway's public IP address to the domain name, i.e. contoso.com has to be done in the client's hosts file (<sysdrive>:\Windows\System32\drivers\etc\hosts in windows). This way, the client would still be able to send the requests to the application gateway even when the requests are sent to https://contoso.com  
+Since <yourblogspot.com> is not a publicly available domain, the DNS resolution of the same cannot happen at the public authoritative DNS servers or the Azure public DNS zone (if the management of the DNS has been delegated to the Azure public DNS zones). So, the mapping of the application gateway's public IP address to the domain name, i.e. contoso.com has to be done in the client's hosts file (<sysdrive>:\Windows\System32\drivers\etc\hosts in windows). This way, the client would still be able to send the requests to the application gateway even when the requests are sent to https://contoso.com  
 example:  
 **20.237.194.223 contoso.com**  
   
 ## Future Work
-*Designing end-to-end TLS for workloads that run on AKS pods using Application gateway Inress Controller (AGIC)*  
-**Note**: In this case the CA certificate that is added to the backend HTTP settings should be the certificate of the authority that signed the TLS certificates of the workload pods 
+TBD
