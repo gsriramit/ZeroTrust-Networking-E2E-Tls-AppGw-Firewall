@@ -6,7 +6,7 @@
 ![NetworkSecurityNinja - Appgw-fw-packetflow](https://user-images.githubusercontent.com/13979783/210385277-a8e62633-13aa-416e-a68d-90d3c09efec2.png)
 
 
-### TLS Flow (To be updated)
+### TLS Flow
 - A TLS certificate signed by a custom rootCA is attached to the Application gateway's listener. This should the certificate of the private CA that has signed the Intermediate CA certificate of Azure Firewall
 - The client successfully establishes a TLS connection with the application gateway (only after the client accepts to proceed with the unverified connection. This has been detailed in the NOTES section)
 - Application gateway being a L7 load balancer and a reverse proxy, terminates the TLS connection with the client
